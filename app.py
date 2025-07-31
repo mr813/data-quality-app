@@ -145,9 +145,17 @@ def main():
         
         if st.button("🔄 Load Dataset"):
             with st.spinner("Loading dataset..."):
-                datasets = get_sample_datasets()
-                st.session_state.current_dataset = datasets[dataset_options[selected_dataset]]
-                st.success(f"✅ Loaded {selected_dataset}")
+                try:
+                    datasets = get_sample_datasets()
+                    dataset_key = dataset_options[selected_dataset]
+                    if dataset_key in datasets:
+                        st.session_state.current_dataset = datasets[dataset_key]
+                        st.success(f"✅ Loaded {selected_dataset}")
+                    else:
+                        st.error(f"❌ Dataset '{dataset_key}' not found. Available datasets: {list(datasets.keys())}")
+                except Exception as e:
+                    st.error(f"❌ Error loading dataset: {e}")
+                    st.info("Available datasets: sales_data, customer_data, product_data, transaction_data, email_data")
         
         # Quality check configuration
         st.subheader("⚙️ Quality Check Settings")

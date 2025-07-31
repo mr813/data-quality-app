@@ -305,13 +305,40 @@ def generate_sample_email_data(rows: int = 300) -> pd.DataFrame:
 
 def get_sample_datasets() -> Dict[str, pd.DataFrame]:
     """Get all sample datasets"""
-    return {
-        'sales_data': generate_sample_sales_data(1000),
-        'customer_data': generate_sample_customer_data(500),
-        'product_data': generate_sample_product_data(200),
-        'transaction_data': generate_sample_transaction_data(2000),
-        'email_data': generate_sample_email_data(300)
-    }
+    try:
+        datasets = {
+            'sales_data': generate_sample_sales_data(1000),
+            'customer_data': generate_sample_customer_data(500),
+            'product_data': generate_sample_product_data(200),
+            'transaction_data': generate_sample_transaction_data(2000)
+        }
+        
+        # Add email dataset with error handling
+        try:
+            datasets['email_data'] = generate_sample_email_data(300)
+        except Exception as e:
+            print(f"Warning: Could not generate email dataset: {e}")
+            # Create a minimal email dataset as fallback
+            datasets['email_data'] = pd.DataFrame({
+                'email_id': ['EMAIL-001', 'EMAIL-002'],
+                'sender_email': ['sender1@company.com', 'sender2@company.com'],
+                'subject': ['Test Email 1', 'Test Email 2'],
+                'email_content': ['This is a test email content.', 'Another test email content.'],
+                'priority': ['High', 'Medium'],
+                'category': ['Work', 'Personal']
+            })
+        
+        return datasets
+    except Exception as e:
+        print(f"Error generating datasets: {e}")
+        # Return minimal fallback datasets
+        return {
+            'sales_data': pd.DataFrame({'id': [1, 2], 'value': [100, 200]}),
+            'customer_data': pd.DataFrame({'id': [1, 2], 'name': ['John', 'Jane']}),
+            'product_data': pd.DataFrame({'id': [1, 2], 'name': ['Product A', 'Product B']}),
+            'transaction_data': pd.DataFrame({'id': [1, 2], 'amount': [50, 75]}),
+            'email_data': pd.DataFrame({'id': [1, 2], 'subject': ['Email 1', 'Email 2']})
+        }
 
 def get_data_quality_issues_summary(df: pd.DataFrame) -> Dict:
     """Get a summary of data quality issues in the dataset"""

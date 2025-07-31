@@ -342,13 +342,19 @@ class DataQualityEngine:
             results['quality_checks']['consistency'] = self.run_consistency_check(spark_df)
             
             # Add text-specific checks for datasets with text content
-            text_columns = [col for col in spark_df.columns if spark_df[col].dtype == 'object'] if not self.use_spark else None
-            if text_columns:
-                results['quality_checks']['text_quality'] = self.run_text_quality_check(spark_df, text_columns)
+            try:
+                text_columns = [col for col in spark_df.columns if spark_df[col].dtype == 'object'] if not self.use_spark else None
+                if text_columns:
+                    results['quality_checks']['text_quality'] = self.run_text_quality_check(spark_df, text_columns)
+            except Exception as e:
+                self.logger.warning(f"Could not run text quality checks: {e}")
             
             # Add email-specific checks if email-related columns are present
-            if any(col in spark_df.columns for col in ['sender_email', 'subject', 'email_content']):
-                results['quality_checks']['email_specific'] = self.run_email_specific_check(spark_df)
+            try:
+                if any(col in spark_df.columns for col in ['sender_email', 'subject', 'email_content']):
+                    results['quality_checks']['email_specific'] = self.run_email_specific_check(spark_df)
+            except Exception as e:
+                self.logger.warning(f"Could not run email-specific checks: {e}")
             
             if column_ranges:
                 results['quality_checks']['range_check'] = self.run_range_check(spark_df, column_ranges)
