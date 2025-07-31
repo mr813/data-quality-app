@@ -134,7 +134,8 @@ def main():
             "Sales Data": "sales_data",
             "Customer Data": "customer_data", 
             "Product Data": "product_data",
-            "Transaction Data": "transaction_data"
+            "Transaction Data": "transaction_data",
+            "Email Data": "email_data"
         }
         
         selected_dataset = st.selectbox(

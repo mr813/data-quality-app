@@ -341,6 +341,15 @@ class DataQualityEngine:
             results['quality_checks']['uniqueness'] = self.run_uniqueness_check(spark_df)
             results['quality_checks']['consistency'] = self.run_consistency_check(spark_df)
             
+            # Add text-specific checks for datasets with text content
+            text_columns = [col for col in spark_df.columns if spark_df[col].dtype == 'object'] if not self.use_spark else None
+            if text_columns:
+                results['quality_checks']['text_quality'] = self.run_text_quality_check(spark_df, text_columns)
+            
+            # Add email-specific checks if email-related columns are present
+            if any(col in spark_df.columns for col in ['sender_email', 'subject', 'email_content']):
+                results['quality_checks']['email_specific'] = self.run_email_specific_check(spark_df)
+            
             if column_ranges:
                 results['quality_checks']['range_check'] = self.run_range_check(spark_df, column_ranges)
             
@@ -424,3 +433,141 @@ class DataQualityEngine:
         except Exception as e:
             self.logger.error(f"Error calculating quality score: {e}")
             return 0.0 
+
+    def run_text_quality_check(self, spark_df, text_columns: List[str] = None) -> Dict:
+        """Run text-specific quality checks on specified columns"""
+        try:
+            if text_columns is None:
+                # Identify text columns (object/string type)
+                if self.use_spark:
+                    text_columns = [col for col in spark_df.columns if spark_df.select(col).dtypes[0][1] == 'string']
+                else:
+                    text_columns = spark_df.select_dtypes(include=['object']).columns.tolist()
+            
+            results = []
+            for col in text_columns:
+                if self.use_spark:
+                    # Spark text analysis
+                    total_count = spark_df.count()
+                    null_count = spark_df.filter(f"{col} IS NULL").count()
+                    empty_count = spark_df.filter(f"length({col}) = 0").count()
+                    short_count = spark_df.filter(f"length({col}) < 10").count()
+                    long_count = spark_df.filter(f"length({col}) > 1000").count()
+                else:
+                    # Pandas text analysis
+                    total_count = len(spark_df)
+                    null_count = spark_df[col].isnull().sum()
+                    empty_count = (spark_df[col] == "").sum()
+                    short_count = (spark_df[col].str.len() < 10).sum()
+                    long_count = (spark_df[col].str.len() > 1000).sum()
+                
+                # Calculate metrics
+                null_ratio = null_count / total_count if total_count > 0 else 0
+                empty_ratio = empty_count / total_count if total_count > 0 else 0
+                short_ratio = short_count / total_count if total_count > 0 else 0
+                long_ratio = long_count / total_count if total_count > 0 else 0
+                
+                # Determine status based on thresholds
+                status = "Success"
+                if null_ratio > 0.1 or empty_ratio > 0.05 or short_ratio > 0.3 or long_ratio > 0.1:
+                    status = "Failure"
+                
+                results.append({
+                    'constraint': f"Text quality for {col}",
+                    'status': status,
+                    'null_ratio': null_ratio,
+                    'empty_ratio': empty_ratio,
+                    'short_ratio': short_ratio,
+                    'long_ratio': long_ratio,
+                    'null_count': null_count,
+                    'empty_count': empty_count,
+                    'short_count': short_count,
+                    'long_count': long_count,
+                    'total_count': total_count
+                })
+            
+            return {
+                'check_type': 'text_quality',
+                'columns': text_columns,
+                'results': results,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            self.logger.error(f"Error in text quality check: {e}")
+            return {'error': str(e)}
+    
+    def run_email_specific_check(self, spark_df) -> Dict:
+        """Run email-specific quality checks"""
+        try:
+            results = []
+            
+            # Check email format validity
+            if 'sender_email' in spark_df.columns:
+                if self.use_spark:
+                    invalid_email_count = spark_df.filter("sender_email NOT LIKE '%@%.%'").count()
+                    total_count = spark_df.count()
+                else:
+                    # Simple email validation regex
+                    import re
+                    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                    invalid_email_count = (~spark_df['sender_email'].str.match(email_pattern, na=False)).sum()
+                    total_count = len(spark_df)
+                
+                invalid_email_ratio = invalid_email_count / total_count if total_count > 0 else 0
+                
+                results.append({
+                    'constraint': 'Email format validity',
+                    'status': 'Success' if invalid_email_ratio < 0.05 else 'Failure',
+                    'invalid_email_ratio': invalid_email_ratio,
+                    'invalid_email_count': invalid_email_count,
+                    'total_count': total_count
+                })
+            
+            # Check for spam indicators
+            if 'subject' in spark_df.columns:
+                if self.use_spark:
+                    spam_subject_count = spark_df.filter("subject LIKE '%!!!%' OR subject LIKE '%URGENT%' OR subject LIKE '%BUY NOW%'").count()
+                    total_count = spark_df.count()
+                else:
+                    spam_keywords = ['!!!', 'URGENT', 'BUY NOW', 'ACT FAST', 'LIMITED TIME']
+                    spam_mask = spark_df['subject'].str.contains('|'.join(spam_keywords), case=False, na=False)
+                    spam_subject_count = spam_mask.sum()
+                    total_count = len(spark_df)
+                
+                spam_ratio = spam_subject_count / total_count if total_count > 0 else 0
+                
+                results.append({
+                    'constraint': 'Spam indicator detection',
+                    'status': 'Success' if spam_ratio < 0.1 else 'Failure',
+                    'spam_ratio': spam_ratio,
+                    'spam_count': spam_subject_count,
+                    'total_count': total_count
+                })
+            
+            # Check sentiment score validity
+            if 'sentiment_score' in spark_df.columns:
+                if self.use_spark:
+                    invalid_sentiment_count = spark_df.filter("sentiment_score < -1 OR sentiment_score > 1").count()
+                    total_count = spark_df.count()
+                else:
+                    invalid_sentiment_count = ((spark_df['sentiment_score'] < -1) | (spark_df['sentiment_score'] > 1)).sum()
+                    total_count = len(spark_df)
+                
+                invalid_sentiment_ratio = invalid_sentiment_count / total_count if total_count > 0 else 0
+                
+                results.append({
+                    'constraint': 'Sentiment score validity',
+                    'status': 'Success' if invalid_sentiment_ratio < 0.05 else 'Failure',
+                    'invalid_sentiment_ratio': invalid_sentiment_ratio,
+                    'invalid_sentiment_count': invalid_sentiment_count,
+                    'total_count': total_count
+                })
+            
+            return {
+                'check_type': 'email_specific',
+                'results': results,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            self.logger.error(f"Error in email-specific check: {e}")
+            return {'error': str(e)} 

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      run: |
+        python test_spark.py
+    
+    - name: Check code quality
+      run: |
+        python -c "import app; print('✅ App imports successfully')"
+        python -c "import data_quality_engine; print('✅ Engine imports successfully')"
+        python -c "import sample_data; print('✅ Sample data imports successfully')"
+    
+    - name: Test data quality engine
+      run: |
+        python -c "
+        import pandas as pd
+        from data_quality_engine import DataQualityEngine
+        
+        # Test with sample data
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'Charlie', None, 'Eve'],
+            'age': [25, 30, 35, 40, 45],
+            'salary': [50000, 60000, 70000, 80000, 90000]
+        })
+        
+        engine = DataQualityEngine(spark_session=None)
+        results = engine.run_comprehensive_quality_check(df)
+        print('✅ Data quality engine test passed')
+        " 

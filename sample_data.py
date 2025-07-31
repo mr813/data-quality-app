@@ -188,13 +188,127 @@ def generate_sample_transaction_data(rows: int = 2000) -> pd.DataFrame:
     
     return df
 
+def generate_sample_email_data(rows: int = 300) -> pd.DataFrame:
+    """Generate sample email data with natural language content and metadata"""
+    
+    np.random.seed(42)
+    
+    # Email subjects and content templates
+    subjects = [
+        "Meeting tomorrow at 3 PM",
+        "Project update - Q4 results",
+        "New client onboarding",
+        "System maintenance scheduled",
+        "Team lunch this Friday",
+        "Budget approval needed",
+        "Security training reminder",
+        "Holiday schedule update",
+        "Performance review due",
+        "Client feedback received"
+    ]
+    
+    # Email content templates
+    content_templates = [
+        "Hi {name}, I hope this email finds you well. {content} Please let me know if you have any questions. Best regards, {sender}",
+        "Hello {name}, {content} Looking forward to your response. Thanks, {sender}",
+        "Dear {name}, {content} Please confirm by end of day. Regards, {sender}",
+        "Hi there {name}, {content} Let me know your thoughts. Cheers, {sender}",
+        "Good morning {name}, {content} Please review and get back to me. Thanks, {sender}"
+    ]
+    
+    # Content variations
+    content_variations = [
+        "We have an important meeting scheduled for tomorrow at 3 PM to discuss the quarterly results.",
+        "The project is progressing well and we're on track to meet our deadlines.",
+        "A new client has been assigned to your team. Please review the onboarding materials.",
+        "System maintenance is scheduled for this weekend. Please save your work.",
+        "Let's have a team lunch this Friday to celebrate our recent success.",
+        "I need your approval on the new budget proposal before we can proceed.",
+        "Security training is mandatory for all employees. Please complete by Friday.",
+        "The holiday schedule has been updated. Please check the new dates.",
+        "Your performance review is due next week. Please submit your self-assessment.",
+        "We received excellent feedback from our latest client. Great work everyone!"
+    ]
+    
+    # Generate data
+    data = {
+        'email_id': [f'EMAIL-{i:06d}' for i in range(1, rows + 1)],
+        'sender_email': [f'sender{i}@company.com' for i in range(1, rows + 1)],
+        'recipient_email': [f'recipient{i}@company.com' for i in range(1, rows + 1)],
+        'sender_name': [f'Sender {i}' for i in range(1, rows + 1)],
+        'recipient_name': [f'Recipient {i}' for i in range(1, rows + 1)],
+        'subject': [random.choice(subjects) for _ in range(rows)],
+        'priority': [random.choice(['High', 'Medium', 'Low', 'Urgent']) for _ in range(rows)],
+        'category': [random.choice(['Work', 'Personal', 'Marketing', 'Support', 'Internal']) for _ in range(rows)],
+        'sent_date': [(datetime.now() - timedelta(days=random.randint(1, 365))).strftime('%Y-%m-%d %H:%M:%S') for _ in range(rows)],
+        'read_status': [random.choice([True, False]) for _ in range(rows)],
+        'has_attachment': [random.choice([True, False]) for _ in range(rows)],
+        'word_count': np.random.randint(10, 500, rows),
+        'sentiment_score': np.random.uniform(-1.0, 1.0, rows),
+        'spam_score': np.random.uniform(0, 1, rows)
+    }
+    
+    # Generate email content
+    email_contents = []
+    for i in range(rows):
+        template = random.choice(content_templates)
+        content = random.choice(content_variations)
+        sender = data['sender_name'][i]
+        recipient = data['recipient_name'][i]
+        
+        email_content = template.format(
+            name=recipient,
+            content=content,
+            sender=sender
+        )
+        email_contents.append(email_content)
+    
+    data['email_content'] = email_contents
+    
+    df = pd.DataFrame(data)
+    
+    # Introduce data quality issues
+    # 1. Missing values
+    missing_indices = np.random.choice(rows, size=int(rows * 0.05), replace=False)
+    df.loc[missing_indices, 'subject'] = None
+    
+    missing_content_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
+    df.loc[missing_content_indices, 'email_content'] = None
+    
+    # 2. Invalid email formats
+    invalid_email_indices = np.random.choice(rows, size=int(rows * 0.03), replace=False)
+    df.loc[invalid_email_indices, 'sender_email'] = 'invalid-email-format'
+    
+    # 3. Duplicate email IDs
+    duplicate_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
+    df.loc[duplicate_indices, 'email_id'] = df.loc[duplicate_indices[0], 'email_id']
+    
+    # 4. Invalid sentiment scores
+    invalid_sentiment_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
+    df.loc[invalid_sentiment_indices, 'sentiment_score'] = 2.5
+    
+    # 5. Invalid spam scores
+    invalid_spam_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
+    df.loc[invalid_spam_indices, 'spam_score'] = 1.5
+    
+    # 6. Very long subjects (potential spam)
+    long_subject_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
+    df.loc[long_subject_indices, 'subject'] = "URGENT!!! BUY NOW!!! LIMITED TIME OFFER!!! DON'T MISS OUT!!! ACT FAST!!!"
+    
+    # 7. Empty content
+    empty_content_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
+    df.loc[empty_content_indices, 'email_content'] = ""
+    
+    return df
+
 def get_sample_datasets() -> Dict[str, pd.DataFrame]:
     """Get all sample datasets"""
     return {
         'sales_data': generate_sample_sales_data(1000),
         'customer_data': generate_sample_customer_data(500),
         'product_data': generate_sample_product_data(200),
-        'transaction_data': generate_sample_transaction_data(2000)
+        'transaction_data': generate_sample_transaction_data(2000),
+        'email_data': generate_sample_email_data(300)
     }
 
 def get_data_quality_issues_summary(df: pd.DataFrame) -> Dict:
