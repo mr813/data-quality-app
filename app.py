@@ -316,6 +316,14 @@ def display_overview():
                 st.session_state.quality_results = quality_results
                 st.success(f"✅ Quality checks completed! Overall score: {quality_score:.2f}%")
                 
+                # Trigger alerts for quality issues
+                quality_alerts = st.session_state.alert_system.check_quality_thresholds(quality_results)
+                if quality_alerts:
+                    st.warning(f"🚨 {len(quality_alerts)} quality alerts triggered!")
+                    st.session_state.alert_system.process_alerts(quality_alerts)
+                else:
+                    st.info("✅ No quality alerts triggered - all thresholds met")
+                
             except Exception as e:
                 st.error(f"❌ Error running quality checks: {e}")
 
@@ -397,6 +405,15 @@ def display_anomaly_detection():
                     )
                     st.session_state.anomaly_results = anomaly_results
                     st.success("✅ Anomaly detection completed!")
+                    
+                    # Trigger alerts for anomalies
+                    anomaly_alerts = st.session_state.alert_system.check_anomaly_thresholds(anomaly_results)
+                    if anomaly_alerts:
+                        st.warning(f"🚨 {len(anomaly_alerts)} anomaly alerts triggered!")
+                        st.session_state.alert_system.process_alerts(anomaly_alerts)
+                    else:
+                        st.info("✅ No anomaly alerts triggered - all thresholds met")
+                        
                 except Exception as e:
                     st.error(f"❌ Error detecting anomalies: {e}")
     
@@ -646,16 +663,53 @@ def display_alert_management():
             st.error(f"❌ Error saving configuration: {e}")
     
     # Test alerts
-    if st.button("🧪 Test Alert System"):
-        test_alert = {
-            'type': 'test_alert',
-            'severity': 'low',
-            'message': 'This is a test alert from the data quality platform',
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        st.session_state.alert_system.process_alerts([test_alert])
-        st.success("✅ Test alert processed successfully!")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🧪 Test Alert System"):
+            test_alert = {
+                'type': 'test_alert',
+                'severity': 'low',
+                'message': 'This is a test alert from the data quality platform',
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            st.session_state.alert_system.process_alerts([test_alert])
+            st.success("✅ Test alert processed successfully!")
+    
+    with col2:
+        if st.button("🚨 Trigger Comprehensive Alerts"):
+            if st.session_state.current_dataset is not None:
+                with st.spinner("Running comprehensive alert check..."):
+                    try:
+                        # Run quality checks
+                        quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(
+                            st.session_state.current_dataset
+                        )
+                        quality_score = st.session_state.quality_engine.calculate_quality_score(quality_results)
+                        quality_results['quality_score'] = quality_score
+                        
+                        # Run anomaly detection
+                        anomaly_results = st.session_state.quality_engine.detect_anomalies(
+                            st.session_state.current_dataset
+                        )
+                        
+                        # Check for alerts
+                        quality_alerts = st.session_state.alert_system.check_quality_thresholds(quality_results)
+                        anomaly_alerts = st.session_state.alert_system.check_anomaly_thresholds(anomaly_results)
+                        
+                        all_alerts = quality_alerts + anomaly_alerts
+                        
+                        if all_alerts:
+                            st.warning(f"🚨 {len(all_alerts)} alerts triggered!")
+                            st.session_state.alert_system.process_alerts(all_alerts)
+                        else:
+                            st.success("✅ No alerts triggered - all thresholds met")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Error running comprehensive alert check: {e}")
+            else:
+                st.error("❌ No dataset loaded. Please load a dataset first.")
     
     # Current configuration status
     with st.expander("📊 Current Configuration Status"):
