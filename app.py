@@ -539,6 +539,12 @@ def display_alert_management():
                 username = st.text_input("Email Username")
                 password = st.text_input("Email Password", type="password")
                 recipients = st.text_area("Recipients (one per line)")
+            else:
+                smtp_server = "smtp.gmail.com"
+                smtp_port = 587
+                username = ""
+                password = ""
+                recipients = ""
         
         with col2:
             st.write("**Webhook Alerts:**")
@@ -547,6 +553,9 @@ def display_alert_management():
             if webhook_enabled:
                 webhook_url = st.text_input("Webhook URL")
                 webhook_headers = st.text_area("Headers (JSON format)")
+            else:
+                webhook_url = ""
+                webhook_headers = ""
     
     # Alert thresholds
     with st.expander("📊 Alert Thresholds"):
@@ -582,6 +591,60 @@ def display_alert_management():
                 value=90
             )
     
+    # Save configuration button
+    if st.button("💾 Save Alert Configuration"):
+        try:
+            # Parse recipients
+            recipient_list = []
+            if email_enabled and recipients:
+                recipient_list = [r.strip() for r in recipients.split('\n') if r.strip()]
+            
+            # Parse webhook headers
+            webhook_headers_dict = {}
+            if webhook_enabled and webhook_headers:
+                try:
+                    webhook_headers_dict = json.loads(webhook_headers)
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON format in webhook headers")
+                    return
+            
+            # Create new configuration
+            new_config = {
+                'email': {
+                    'enabled': email_enabled,
+                    'smtp_server': smtp_server,
+                    'smtp_port': smtp_port,
+                    'username': username,
+                    'password': password,
+                    'recipients': recipient_list
+                },
+                'webhook': {
+                    'enabled': webhook_enabled,
+                    'url': webhook_url,
+                    'headers': webhook_headers_dict
+                },
+                'thresholds': {
+                    'quality_score_min': float(quality_threshold),
+                    'anomaly_percentage_max': float(anomaly_threshold),
+                    'completeness_min': float(completeness_threshold),
+                    'uniqueness_min': float(uniqueness_threshold)
+                },
+                'schedule': {
+                    'enabled': False,
+                    'interval_minutes': 60
+                }
+            }
+            
+            # Update alert system configuration
+            st.session_state.alert_system.update_config(new_config)
+            
+            st.success("✅ Alert configuration saved successfully!")
+            st.info(f"📧 Email alerts: {'Enabled' if email_enabled else 'Disabled'}")
+            st.info(f"🔗 Webhook alerts: {'Enabled' if webhook_enabled else 'Disabled'}")
+            
+        except Exception as e:
+            st.error(f"❌ Error saving configuration: {e}")
+    
     # Test alerts
     if st.button("🧪 Test Alert System"):
         test_alert = {
@@ -593,6 +656,29 @@ def display_alert_management():
         
         st.session_state.alert_system.process_alerts([test_alert])
         st.success("✅ Test alert processed successfully!")
+    
+    # Current configuration status
+    with st.expander("📊 Current Configuration Status"):
+        current_config = st.session_state.alert_system.get_config()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Email Configuration:**")
+            email_config = current_config['email']
+            st.write(f"Enabled: {'✅ Yes' if email_config['enabled'] else '❌ No'}")
+            if email_config['enabled']:
+                st.write(f"SMTP Server: {email_config['smtp_server']}:{email_config['smtp_port']}")
+                st.write(f"Username: {email_config['username']}")
+                st.write(f"Recipients: {len(email_config['recipients'])} configured")
+        
+        with col2:
+            st.write("**Thresholds:**")
+            thresholds = current_config['thresholds']
+            st.write(f"Quality Score: ≥{thresholds['quality_score_min']}%")
+            st.write(f"Anomaly Percentage: ≤{thresholds['anomaly_percentage_max']}%")
+            st.write(f"Completeness: ≥{thresholds['completeness_min']}%")
+            st.write(f"Uniqueness: ≥{thresholds['uniqueness_min']}%")
     
     # Alert history
     with st.expander("📋 Alert History"):
