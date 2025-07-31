@@ -70,17 +70,25 @@ class AlertSystem:
         alerts = []
         
         try:
+            self.logger.info("🔍 Checking quality thresholds...")
+            
             # Check overall quality score
             quality_score = quality_results.get('quality_score', 0)
-            if quality_score < self.config['thresholds']['quality_score_min']:
+            threshold = self.config['thresholds']['quality_score_min']
+            self.logger.info(f"📊 Quality score: {quality_score:.2f}% (threshold: {threshold}%)")
+            
+            if quality_score < threshold:
+                self.logger.warning(f"🚨 QUALITY SCORE ALERT: {quality_score:.2f}% < {threshold}%")
                 alerts.append({
                     'type': 'quality_score_low',
                     'severity': 'high',
-                    'message': f'Data quality score ({quality_score:.2f}%) is below threshold ({self.config["thresholds"]["quality_score_min"]}%)',
+                    'message': f'Data quality score ({quality_score:.2f}%) is below threshold ({threshold}%)',
                     'timestamp': datetime.now().isoformat(),
                     'value': quality_score,
-                    'threshold': self.config['thresholds']['quality_score_min']
+                    'threshold': threshold
                 })
+            else:
+                self.logger.info(f"✅ Quality score acceptable: {quality_score:.2f}% >= {threshold}%")
             
             # Check completeness
             if 'quality_checks' in quality_results and 'completeness' in quality_results['quality_checks']:
@@ -126,11 +134,19 @@ class AlertSystem:
         alerts = []
         
         try:
+            self.logger.info("🔍 Checking anomaly thresholds...")
+            threshold = self.config['thresholds']['anomaly_percentage_max']
+            self.logger.info(f"📊 Anomaly threshold: {threshold}%")
+            
             if 'anomaly_detection' in anomaly_results:
                 for column, anomaly_data in anomaly_results['anomaly_detection'].items():
                     anomaly_percentage = anomaly_data.get('anomaly_percentage', 0)
+                    anomaly_count = anomaly_data.get('anomaly_count', 0)
                     
-                    if anomaly_percentage > self.config['thresholds']['anomaly_percentage_max']:
+                    self.logger.info(f"📊 Column '{column}': {anomaly_percentage:.2f}% anomalies ({anomaly_count} total)")
+                    
+                    if anomaly_percentage > threshold:
+                        self.logger.warning(f"🚨 ANOMALY ALERT: {anomaly_percentage:.2f}% > {threshold}% in column '{column}'")
                         alerts.append({
                             'type': 'anomaly_detected',
                             'severity': 'high',
@@ -138,8 +154,12 @@ class AlertSystem:
                             'timestamp': datetime.now().isoformat(),
                             'column': column,
                             'anomaly_percentage': anomaly_percentage,
-                            'anomaly_count': anomaly_data.get('anomaly_count', 0)
+                            'anomaly_count': anomaly_count
                         })
+                    else:
+                        self.logger.info(f"✅ Anomaly level acceptable in '{column}': {anomaly_percentage:.2f}% <= {threshold}%")
+            else:
+                self.logger.info("📊 No anomaly detection results found")
             
         except Exception as e:
             self.logger.error(f"Error checking anomaly thresholds: {e}")
@@ -153,10 +173,21 @@ class AlertSystem:
         return alerts
     
     def send_email_alert(self, alert: Dict):
-        """Send email alert"""
+        """Send email alert with detailed logging"""
         try:
+            # Log alert trigger
+            self.logger.info(f"🚨 EMAIL ALERT TRIGGERED: {alert['type']} - {alert['message']}")
+            self.logger.info(f"📧 Email configuration: enabled={self.config['email']['enabled']}")
+            
             if not self.config['email']['enabled']:
+                self.logger.warning("❌ Email alerts are disabled in configuration")
                 return
+            
+            # Log email composition
+            self.logger.info(f"📝 Composing email alert for: {alert['type']}")
+            self.logger.info(f"📤 From: {self.config['email']['username']}")
+            self.logger.info(f"📥 To: {', '.join(self.config['email']['recipients'])}")
+            self.logger.info(f"📋 Subject: Data Quality Alert: {alert['type']}")
             
             msg = MIMEMultipart()
             msg['From'] = self.config['email']['username']
@@ -177,17 +208,53 @@ class AlertSystem:
             
             msg.attach(MIMEText(body, 'plain'))
             
+            # Log SMTP connection attempt
+            self.logger.info(f"🔌 Connecting to SMTP server: {self.config['email']['smtp_server']}:{self.config['email']['smtp_port']}")
+            
             server = smtplib.SMTP(self.config['email']['smtp_server'], self.config['email']['smtp_port'])
+            self.logger.info("✅ SMTP connection established")
+            
+            # Log TLS handshake
+            self.logger.info("🔒 Starting TLS encryption")
             server.starttls()
+            self.logger.info("✅ TLS encryption enabled")
+            
+            # Log authentication
+            self.logger.info(f"🔐 Authenticating with username: {self.config['email']['username']}")
             server.login(self.config['email']['username'], self.config['email']['password'])
+            self.logger.info("✅ SMTP authentication successful")
+            
+            # Log email sending
             text = msg.as_string()
+            self.logger.info(f"📤 Sending email to {len(self.config['email']['recipients'])} recipients")
+            
             server.sendmail(self.config['email']['username'], self.config['email']['recipients'], text)
+            self.logger.info("✅ Email successfully sent to SMTP server")
+            
+            # Log connection cleanup
             server.quit()
+            self.logger.info("🔌 SMTP connection closed")
             
-            self.logger.info(f"Email alert sent for: {alert['type']}")
+            # Log successful delivery
+            self.logger.info(f"🎉 EMAIL ALERT DELIVERED: {alert['type']} - Sent to {len(self.config['email']['recipients'])} recipients")
             
+        except smtplib.SMTPAuthenticationError as e:
+            self.logger.error(f"❌ SMTP AUTHENTICATION FAILED: {e}")
+            self.logger.error(f"🔐 Check username/password for: {self.config['email']['username']}")
+        except smtplib.SMTPConnectError as e:
+            self.logger.error(f"❌ SMTP CONNECTION FAILED: {e}")
+            self.logger.error(f"🔌 Check server: {self.config['email']['smtp_server']}:{self.config['email']['smtp_port']}")
+        except smtplib.SMTPRecipientsRefused as e:
+            self.logger.error(f"❌ SMTP RECIPIENT REFUSED: {e}")
+            self.logger.error(f"📥 Check recipient emails: {self.config['email']['recipients']}")
+        except smtplib.SMTPServerDisconnected as e:
+            self.logger.error(f"❌ SMTP SERVER DISCONNECTED: {e}")
+        except smtplib.SMTPException as e:
+            self.logger.error(f"❌ SMTP ERROR: {e}")
         except Exception as e:
-            self.logger.error(f"Error sending email alert: {e}")
+            self.logger.error(f"❌ UNEXPECTED ERROR sending email alert: {e}")
+            self.logger.error(f"📧 Alert type: {alert['type']}")
+            self.logger.error(f"📧 Alert message: {alert['message']}")
     
     def send_webhook_alert(self, alert: Dict):
         """Send webhook alert"""
@@ -212,20 +279,39 @@ class AlertSystem:
             self.logger.error(f"Error sending webhook alert: {e}")
     
     def process_alerts(self, alerts: List[Dict]):
-        """Process and send alerts"""
-        for alert in alerts:
+        """Process and send alerts with detailed logging"""
+        if not alerts:
+            self.logger.info("✅ No alerts to process")
+            return
+        
+        self.logger.info(f"🚨 PROCESSING {len(alerts)} ALERTS")
+        
+        for i, alert in enumerate(alerts, 1):
+            self.logger.info(f"📋 Processing alert {i}/{len(alerts)}: {alert['type']}")
+            self.logger.info(f"📊 Alert details: Severity={alert['severity']}, Message={alert['message']}")
+            
             # Store alert in history
             self.alert_history.append(alert)
+            self.logger.info(f"💾 Alert stored in history (total: {len(self.alert_history)})")
             
-            # Send alerts based on configuration
+            # Send email alerts
             if self.config['email']['enabled']:
+                self.logger.info(f"📧 Sending email alert for: {alert['type']}")
                 self.send_email_alert(alert)
+            else:
+                self.logger.info(f"📧 Email alerts disabled - skipping email for: {alert['type']}")
             
+            # Send webhook alerts
             if self.config['webhook']['enabled']:
+                self.logger.info(f"🔗 Sending webhook alert for: {alert['type']}")
                 self.send_webhook_alert(alert)
+            else:
+                self.logger.info(f"🔗 Webhook alerts disabled - skipping webhook for: {alert['type']}")
             
-            # Log alert
-            self.logger.warning(f"Alert: {alert['type']} - {alert['message']}")
+            # Log alert completion
+            self.logger.warning(f"✅ Alert processed: {alert['type']} - {alert['message']}")
+        
+        self.logger.info(f"🎉 All {len(alerts)} alerts processed successfully")
     
     def get_alert_summary(self, hours: int = 24) -> Dict:
         """Get alert summary for the specified time period"""
@@ -263,30 +349,47 @@ class AlertSystem:
         """Start continuous monitoring"""
         def monitoring_job():
             try:
+                self.logger.info("🔄 Starting monitoring cycle...")
+                
                 # Get data from source
+                self.logger.info("📊 Fetching data from source...")
                 df = data_source_func()
+                self.logger.info(f"📊 Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
                 
                 # Run quality checks
+                self.logger.info("🔍 Running comprehensive quality checks...")
                 quality_results = quality_engine.run_comprehensive_quality_check(df)
                 quality_score = quality_engine.calculate_quality_score(quality_results)
                 quality_results['quality_score'] = quality_score
+                self.logger.info(f"📊 Quality score calculated: {quality_score:.2f}%")
                 
                 # Run anomaly detection
+                self.logger.info("🔍 Running anomaly detection...")
                 anomaly_results = quality_engine.detect_anomalies(df)
+                self.logger.info("📊 Anomaly detection completed")
                 
                 # Check for alerts
+                self.logger.info("🚨 Checking quality thresholds for alerts...")
                 quality_alerts = self.check_quality_thresholds(quality_results)
+                self.logger.info(f"📊 Quality alerts found: {len(quality_alerts)}")
+                
+                self.logger.info("🚨 Checking anomaly thresholds for alerts...")
                 anomaly_alerts = self.check_anomaly_thresholds(anomaly_results)
+                self.logger.info(f"📊 Anomaly alerts found: {len(anomaly_alerts)}")
                 
                 all_alerts = quality_alerts + anomaly_alerts
                 
                 if all_alerts:
+                    self.logger.warning(f"🚨 ALERTS TRIGGERED: {len(all_alerts)} total alerts")
                     self.process_alerts(all_alerts)
+                else:
+                    self.logger.info("✅ No alerts triggered - all thresholds within acceptable ranges")
                 
-                self.logger.info(f"Monitoring cycle completed. Quality score: {quality_score:.2f}%")
+                self.logger.info(f"✅ Monitoring cycle completed. Quality score: {quality_score:.2f}%")
                 
             except Exception as e:
-                self.logger.error(f"Error in monitoring job: {e}")
+                self.logger.error(f"❌ Error in monitoring job: {e}")
+                self.logger.error(f"📊 Monitoring cycle failed - will retry on next interval")
         
         # Schedule the monitoring job
         schedule.every(interval_minutes).minutes.do(monitoring_job)
