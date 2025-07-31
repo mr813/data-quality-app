@@ -268,36 +268,38 @@ def generate_sample_email_data(rows: int = 300) -> pd.DataFrame:
     df = pd.DataFrame(data)
     
     # Introduce data quality issues
-    # 1. Missing values
-    missing_indices = np.random.choice(rows, size=int(rows * 0.05), replace=False)
-    df.loc[missing_indices, 'subject'] = None
-    
-    missing_content_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
-    df.loc[missing_content_indices, 'email_content'] = None
-    
-    # 2. Invalid email formats
-    invalid_email_indices = np.random.choice(rows, size=int(rows * 0.03), replace=False)
-    df.loc[invalid_email_indices, 'sender_email'] = 'invalid-email-format'
+    if rows > 0:
+        # 1. Missing values
+        missing_indices = np.random.choice(rows, size=max(1, int(rows * 0.05)), replace=False)
+        df.loc[missing_indices, 'subject'] = None
+        
+        missing_content_indices = np.random.choice(rows, size=max(1, int(rows * 0.02)), replace=False)
+        df.loc[missing_content_indices, 'email_content'] = None
+        
+        # 2. Invalid email formats
+        invalid_email_indices = np.random.choice(rows, size=max(1, int(rows * 0.03)), replace=False)
+        df.loc[invalid_email_indices, 'sender_email'] = 'invalid-email-format'
     
     # 3. Duplicate email IDs
-    duplicate_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
-    df.loc[duplicate_indices, 'email_id'] = df.loc[duplicate_indices[0], 'email_id']
+    if rows > 1:
+        duplicate_indices = np.random.choice(rows, size=max(1, int(rows * 0.01)), replace=False)
+        df.loc[duplicate_indices, 'email_id'] = df.loc[duplicate_indices[0], 'email_id']
     
-    # 4. Invalid sentiment scores
-    invalid_sentiment_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
-    df.loc[invalid_sentiment_indices, 'sentiment_score'] = 2.5
-    
-    # 5. Invalid spam scores
-    invalid_spam_indices = np.random.choice(rows, size=int(rows * 0.02), replace=False)
-    df.loc[invalid_spam_indices, 'spam_score'] = 1.5
-    
-    # 6. Very long subjects (potential spam)
-    long_subject_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
-    df.loc[long_subject_indices, 'subject'] = "URGENT!!! BUY NOW!!! LIMITED TIME OFFER!!! DON'T MISS OUT!!! ACT FAST!!!"
-    
-    # 7. Empty content
-    empty_content_indices = np.random.choice(rows, size=int(rows * 0.01), replace=False)
-    df.loc[empty_content_indices, 'email_content'] = ""
+        # 4. Invalid sentiment scores
+        invalid_sentiment_indices = np.random.choice(rows, size=max(1, int(rows * 0.02)), replace=False)
+        df.loc[invalid_sentiment_indices, 'sentiment_score'] = 2.5
+        
+        # 5. Invalid spam scores
+        invalid_spam_indices = np.random.choice(rows, size=max(1, int(rows * 0.02)), replace=False)
+        df.loc[invalid_spam_indices, 'spam_score'] = 1.5
+        
+        # 6. Very long subjects (potential spam)
+        long_subject_indices = np.random.choice(rows, size=max(1, int(rows * 0.01)), replace=False)
+        df.loc[long_subject_indices, 'subject'] = "URGENT!!! BUY NOW!!! LIMITED TIME OFFER!!! DON'T MISS OUT!!! ACT FAST!!!"
+        
+        # 7. Empty content
+        empty_content_indices = np.random.choice(rows, size=max(1, int(rows * 0.01)), replace=False)
+        df.loc[empty_content_indices, 'email_content'] = ""
     
     return df
 
