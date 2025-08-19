@@ -319,11 +319,17 @@ def display_overview():
                 # Get current dataset name from sidebar
                 dataset_name = st.session_state.get('selected_dataset', 'unknown_dataset')
                 
-                quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(
-                    df, 
-                    dataset_name=dataset_name,
-                    save_metrics=True
-                )
+                # Check if the quality engine supports metrics saving
+                if hasattr(st.session_state.quality_engine, '_save_metrics_to_file'):
+                    quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(
+                        df, 
+                        dataset_name=dataset_name,
+                        save_metrics=True
+                    )
+                else:
+                    # Fallback for older versions without metrics persistence
+                    quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(df)
+                    st.warning("⚠️ Metrics persistence not available in this version. Results will not be saved to history.")
                 quality_score = quality_results.get('overall_quality_score', 0)
                 
                 st.session_state.quality_results = quality_results
@@ -559,8 +565,30 @@ def display_metrics_history():
     
     st.subheader("📋 Metrics History")
     
-    # Get run history
-    run_history = st.session_state.quality_engine.get_run_history()
+    # Check if the quality engine has the required methods
+    has_metrics_features = hasattr(st.session_state.quality_engine, 'get_run_history')
+    
+    if not has_metrics_features:
+        st.error("❌ Metrics history functionality not available in this version.")
+        st.info("📝 This feature requires the latest version of the Data Quality Engine.")
+        st.info("🔄 Please update your deployment or contact support.")
+        
+        # Show available methods for debugging
+        with st.expander("🔍 Debug Information"):
+            st.write("**Available methods in DataQualityEngine:**")
+            methods = [method for method in dir(st.session_state.quality_engine) 
+                      if not method.startswith('_') and callable(getattr(st.session_state.quality_engine, method))]
+            st.write(methods)
+        return
+    
+    # Get run history with fallback for older versions
+    try:
+        run_history = st.session_state.quality_engine.get_run_history()
+    except AttributeError:
+        st.error("❌ Metrics history functionality not available in this version.")
+        st.info("📝 This feature requires the latest version of the Data Quality Engine.")
+        st.info("🔄 Please update your deployment or contact support.")
+        return
     
     if not run_history:
         st.info("📊 No quality check runs found. Run quality checks from the Overview tab to see history here.")
@@ -603,7 +631,11 @@ def display_metrics_history():
         
         if selected_run_id:
             # Get detailed metrics for selected run
-            run_metrics = st.session_state.quality_engine.get_run_metrics(selected_run_id)
+            try:
+                run_metrics = st.session_state.quality_engine.get_run_metrics(selected_run_id)
+            except AttributeError:
+                st.error("❌ Run metrics functionality not available in this version.")
+                return
             
             if 'error' not in run_metrics:
                 # Display metrics summary
@@ -644,7 +676,11 @@ def display_metrics_history():
                 
                 # Download JSON button
                 st.subheader("💾 Download Metrics")
-                download_file = st.session_state.quality_engine.download_metrics_json(selected_run_id)
+                try:
+                    download_file = st.session_state.quality_engine.download_metrics_json(selected_run_id)
+                except AttributeError:
+                    st.error("❌ Download functionality not available in this version.")
+                    return
                 
                 if download_file and os.path.exists(download_file):
                     with open(download_file, 'r') as f:
@@ -666,7 +702,11 @@ def display_metrics_history():
     # Dataset summary
     st.subheader("📈 Dataset Summary")
     if selected_dataset != "All Datasets":
-        summary = st.session_state.quality_engine.get_dataset_summary(selected_dataset)
+        try:
+            summary = st.session_state.quality_engine.get_dataset_summary(selected_dataset)
+        except AttributeError:
+            st.error("❌ Dataset summary functionality not available in this version.")
+            return
         
         if 'error' not in summary:
             col1, col2, col3, col4 = st.columns(4)
