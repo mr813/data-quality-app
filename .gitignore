@@ -156,4 +156,8 @@ logs/
 
 # Temporary files
 tmp/
-temp/ 
+temp/
+
+# Quality metrics storage
+quality_metrics/
+test_quality_metrics/ 

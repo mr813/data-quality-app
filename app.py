@@ -143,6 +143,9 @@ def main():
             list(dataset_options.keys())
         )
         
+        # Store selected dataset name in session state
+        st.session_state.selected_dataset = selected_dataset
+        
         if st.button("🔄 Load Dataset"):
             with st.spinner("Loading dataset..."):
                 try:
@@ -234,11 +237,12 @@ def display_dashboard():
     """Display the main dashboard"""
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Overview", 
         "🔍 Quality Analysis", 
         "🚨 Anomaly Detection", 
         "📈 Data Profiling", 
+        "📋 Metrics History",
         "⚙️ Alert Management"
     ])
     
@@ -255,6 +259,9 @@ def display_dashboard():
         display_data_profiling()
     
     with tab5:
+        display_metrics_history()
+    
+    with tab6:
         display_alert_management()
 
 def display_overview():
@@ -309,12 +316,22 @@ def display_overview():
     if st.button("🔍 Run Quality Checks", type="primary"):
         with st.spinner("Running comprehensive quality checks..."):
             try:
-                quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(df)
-                quality_score = st.session_state.quality_engine.calculate_quality_score(quality_results)
-                quality_results['quality_score'] = quality_score
+                # Get current dataset name from sidebar
+                dataset_name = st.session_state.get('selected_dataset', 'unknown_dataset')
+                
+                quality_results = st.session_state.quality_engine.run_comprehensive_quality_check(
+                    df, 
+                    dataset_name=dataset_name,
+                    save_metrics=True
+                )
+                quality_score = quality_results.get('overall_quality_score', 0)
                 
                 st.session_state.quality_results = quality_results
                 st.success(f"✅ Quality checks completed! Overall score: {quality_score:.2f}%")
+                
+                # Show run ID if available
+                if 'run_id' in quality_results:
+                    st.info(f"📊 Run ID: {quality_results['run_id']} - Metrics saved to history")
                 
                 # Trigger alerts for quality issues
                 quality_alerts = st.session_state.alert_system.check_quality_thresholds(quality_results)
@@ -536,6 +553,155 @@ def display_data_profiling():
                         title=f"Top 10 Values in {col}"
                     )
                     st.plotly_chart(fig, use_container_width=True)
+
+def display_metrics_history():
+    """Display metrics history and allow downloading of JSON files"""
+    
+    st.subheader("📋 Metrics History")
+    
+    # Get run history
+    run_history = st.session_state.quality_engine.get_run_history()
+    
+    if not run_history:
+        st.info("📊 No quality check runs found. Run quality checks from the Overview tab to see history here.")
+        return
+    
+    # Dataset filter
+    datasets = list(set(run['dataset_name'] for run in run_history))
+    selected_dataset = st.selectbox(
+        "Filter by Dataset:",
+        ["All Datasets"] + datasets
+    )
+    
+    # Filter runs by dataset
+    if selected_dataset != "All Datasets":
+        filtered_runs = [run for run in run_history if run['dataset_name'] == selected_dataset]
+    else:
+        filtered_runs = run_history
+    
+    # Display run history
+    st.write(f"**📊 Found {len(filtered_runs)} quality check runs**")
+    
+    # Create a table of runs
+    if filtered_runs:
+        runs_df = pd.DataFrame(filtered_runs)
+        runs_df['timestamp'] = pd.to_datetime(runs_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        runs_df['quality_score'] = runs_df['quality_score'].round(2)
+        
+        # Reorder columns for better display
+        display_columns = ['run_id', 'dataset_name', 'timestamp', 'quality_score', 'rows', 'columns', 'status']
+        runs_df = runs_df[display_columns]
+        
+        st.dataframe(runs_df, use_container_width=True)
+        
+        # Allow selecting a run to view details
+        st.subheader("🔍 View Run Details")
+        selected_run_id = st.selectbox(
+            "Select a run to view details:",
+            [run['run_id'] for run in filtered_runs]
+        )
+        
+        if selected_run_id:
+            # Get detailed metrics for selected run
+            run_metrics = st.session_state.quality_engine.get_run_metrics(selected_run_id)
+            
+            if 'error' not in run_metrics:
+                # Display metrics summary
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    overall_score = run_metrics['metrics'].get('overall_quality_score', 0)
+                    st.metric("Overall Quality Score", f"{overall_score:.2f}%")
+                
+                with col2:
+                    rows = run_metrics['metrics']['dataset_info']['rows']
+                    st.metric("Total Rows", f"{rows:,}")
+                
+                with col3:
+                    columns = run_metrics['metrics']['dataset_info']['columns']
+                    st.metric("Total Columns", columns)
+                
+                # Display quality checks summary
+                st.subheader("📊 Quality Checks Summary")
+                quality_checks = run_metrics['metrics']['quality_checks']
+                
+                check_summary = []
+                for check_type, check_result in quality_checks.items():
+                    if 'error' not in check_result and 'results' in check_result:
+                        total_checks = len(check_result['results'])
+                        passed_checks = sum(1 for r in check_result['results'] if r.get('status') == 'Success')
+                        check_summary.append({
+                            'Check Type': check_type.replace('_', ' ').title(),
+                            'Total Checks': total_checks,
+                            'Passed': passed_checks,
+                            'Failed': total_checks - passed_checks,
+                            'Success Rate': f"{(passed_checks/total_checks*100):.1f}%" if total_checks > 0 else "0%"
+                        })
+                
+                if check_summary:
+                    summary_df = pd.DataFrame(check_summary)
+                    st.dataframe(summary_df, use_container_width=True)
+                
+                # Download JSON button
+                st.subheader("💾 Download Metrics")
+                download_file = st.session_state.quality_engine.download_metrics_json(selected_run_id)
+                
+                if download_file and os.path.exists(download_file):
+                    with open(download_file, 'r') as f:
+                        json_data = f.read()
+                    
+                    st.download_button(
+                        label="📥 Download JSON Metrics",
+                        data=json_data,
+                        file_name=f"quality_metrics_{selected_run_id}.json",
+                        mime="application/json"
+                    )
+                    
+                    st.info(f"📁 File: {download_file}")
+                else:
+                    st.error("❌ Metrics file not found")
+            else:
+                st.error(f"❌ Error loading metrics: {run_metrics['error']}")
+    
+    # Dataset summary
+    st.subheader("📈 Dataset Summary")
+    if selected_dataset != "All Datasets":
+        summary = st.session_state.quality_engine.get_dataset_summary(selected_dataset)
+        
+        if 'error' not in summary:
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Runs", summary['total_runs'])
+            
+            with col2:
+                mean_score = summary['quality_score_stats']['mean']
+                st.metric("Avg Quality Score", f"{mean_score:.2f}%")
+            
+            with col3:
+                min_score = summary['quality_score_stats']['min']
+                st.metric("Min Quality Score", f"{min_score:.2f}%")
+            
+            with col4:
+                max_score = summary['quality_score_stats']['max']
+                st.metric("Max Quality Score", f"{max_score:.2f}%")
+            
+            # Quality score trend
+            if summary['recent_runs']:
+                st.subheader("📊 Quality Score Trend")
+                trend_data = pd.DataFrame(summary['recent_runs'])
+                trend_data['timestamp'] = pd.to_datetime(trend_data['timestamp'])
+                
+                fig = px.line(
+                    trend_data, 
+                    x='timestamp', 
+                    y='quality_score',
+                    title=f"Quality Score Trend - {selected_dataset}",
+                    labels={'quality_score': 'Quality Score (%)', 'timestamp': 'Date'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.error(f"❌ Error loading summary: {summary['error']}")
 
 def display_alert_management():
     """Display alert management interface"""

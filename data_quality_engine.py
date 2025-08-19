@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import uuid
 
 # Set SPARK_VERSION environment variable for PyDeequ
 os.environ['SPARK_VERSION'] = '3.3'
@@ -16,13 +17,21 @@ warnings.filterwarnings('ignore')
 class DataQualityEngine:
     """
     Data Quality Engine using PyDeequ for comprehensive data quality checks
-    and anomaly detection.
+    and anomaly detection with persistent metrics storage.
     """
     
-    def __init__(self, spark_session=None):
+    def __init__(self, spark_session=None, metrics_dir: str = "quality_metrics"):
         self.spark = spark_session
         self.logger = self._setup_logging()
         self.use_spark = spark_session is not None
+        self.metrics_dir = metrics_dir
+        self.runs_file = os.path.join(metrics_dir, "run_history.json")
+        
+        # Create metrics directory if it doesn't exist
+        os.makedirs(metrics_dir, exist_ok=True)
+        
+        # Initialize run history
+        self._load_run_history()
         
     def _setup_logging(self):
         """Setup logging configuration"""
@@ -31,6 +40,186 @@ class DataQualityEngine:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         return logging.getLogger(__name__)
+    
+    def _load_run_history(self):
+        """Load existing run history from file"""
+        try:
+            if os.path.exists(self.runs_file):
+                with open(self.runs_file, 'r') as f:
+                    self.run_history = json.load(f)
+            else:
+                self.run_history = {
+                    "runs": [],
+                    "total_runs": 0,
+                    "last_updated": datetime.now().isoformat()
+                }
+        except Exception as e:
+            self.logger.error(f"Error loading run history: {e}")
+            self.run_history = {
+                "runs": [],
+                "total_runs": 0,
+                "last_updated": datetime.now().isoformat()
+            }
+    
+    def _save_run_history(self):
+        """Save run history to file"""
+        try:
+            self.run_history["last_updated"] = datetime.now().isoformat()
+            with open(self.runs_file, 'w') as f:
+                json.dump(self.run_history, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Error saving run history: {e}")
+    
+    def _generate_run_id(self) -> str:
+        """Generate a unique run ID"""
+        return str(uuid.uuid4())
+    
+    def _save_metrics_to_file(self, run_id: str, dataset_name: str, metrics: Dict) -> str:
+        """Save metrics to a JSON file"""
+        try:
+            filename = f"{run_id}_{dataset_name}_metrics.json"
+            filepath = os.path.join(self.metrics_dir, filename)
+            
+            # Add metadata to metrics
+            metrics_with_metadata = {
+                "run_id": run_id,
+                "dataset_name": dataset_name,
+                "timestamp": datetime.now().isoformat(),
+                "metrics": metrics
+            }
+            
+            # Convert numpy types to native Python types for JSON serialization
+            def convert_numpy_types(obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif hasattr(obj, 'tolist'):  # Handle pandas Index and other pandas objects
+                    return obj.tolist()
+                elif isinstance(obj, dict):
+                    return {key: convert_numpy_types(value) for key, value in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_types(item) for item in obj]
+                else:
+                    return obj
+            
+            # Convert all numpy types in the metrics
+            metrics_with_metadata = convert_numpy_types(metrics_with_metadata)
+            
+            with open(filepath, 'w') as f:
+                json.dump(metrics_with_metadata, f, indent=2)
+            
+            self.logger.info(f"Metrics saved to: {filepath}")
+            return filepath
+        except Exception as e:
+            self.logger.error(f"Error saving metrics to file: {e}")
+            return None
+    
+    def _add_run_to_history(self, run_id: str, dataset_name: str, filepath: str, 
+                           quality_score: float, rows: int, columns: int) -> None:
+        """Add a new run to the history"""
+        run_entry = {
+            "run_id": run_id,
+            "dataset_name": dataset_name,
+            "timestamp": datetime.now().isoformat(),
+            "quality_score": quality_score,
+            "rows": rows,
+            "columns": columns,
+            "metrics_file": filepath,
+            "status": "completed"
+        }
+        
+        self.run_history["runs"].append(run_entry)
+        self.run_history["total_runs"] = len(self.run_history["runs"])
+        self._save_run_history()
+        
+        self.logger.info(f"Run {run_id} added to history for dataset: {dataset_name}")
+    
+    def get_run_history(self, dataset_name: str = None, limit: int = None) -> List[Dict]:
+        """Get run history, optionally filtered by dataset name"""
+        try:
+            runs = self.run_history["runs"]
+            
+            if dataset_name:
+                runs = [run for run in runs if run["dataset_name"] == dataset_name]
+            
+            if limit:
+                runs = runs[-limit:]  # Get the most recent runs
+            
+            return runs
+        except Exception as e:
+            self.logger.error(f"Error getting run history: {e}")
+            return []
+    
+    def get_run_metrics(self, run_id: str) -> Dict:
+        """Get metrics for a specific run"""
+        try:
+            # Find the run in history
+            run = next((r for r in self.run_history["runs"] if r["run_id"] == run_id), None)
+            
+            if not run:
+                return {"error": f"Run {run_id} not found"}
+            
+            # Load metrics from file
+            metrics_file = run["metrics_file"]
+            if os.path.exists(metrics_file):
+                with open(metrics_file, 'r') as f:
+                    return json.load(f)
+            else:
+                return {"error": f"Metrics file not found: {metrics_file}"}
+                
+        except Exception as e:
+            self.logger.error(f"Error getting run metrics: {e}")
+            return {"error": str(e)}
+    
+    def download_metrics_json(self, run_id: str) -> str:
+        """Get the file path for downloading metrics JSON"""
+        try:
+            run = next((r for r in self.run_history["runs"] if r["run_id"] == run_id), None)
+            
+            if not run:
+                return None
+            
+            metrics_file = run["metrics_file"]
+            if os.path.exists(metrics_file):
+                return metrics_file
+            else:
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error getting metrics file path: {e}")
+            return None
+    
+    def get_dataset_summary(self, dataset_name: str) -> Dict:
+        """Get summary statistics for a dataset across all runs"""
+        try:
+            dataset_runs = [run for run in self.run_history["runs"] if run["dataset_name"] == dataset_name]
+            
+            if not dataset_runs:
+                return {"error": f"No runs found for dataset: {dataset_name}"}
+            
+            quality_scores = [run["quality_score"] for run in dataset_runs]
+            
+            summary = {
+                "dataset_name": dataset_name,
+                "total_runs": len(dataset_runs),
+                "first_run": min(run["timestamp"] for run in dataset_runs),
+                "last_run": max(run["timestamp"] for run in dataset_runs),
+                "quality_score_stats": {
+                    "mean": np.mean(quality_scores),
+                    "min": np.min(quality_scores),
+                    "max": np.max(quality_scores),
+                    "std": np.std(quality_scores)
+                },
+                "recent_runs": dataset_runs[-5:]  # Last 5 runs
+            }
+            
+            return summary
+        except Exception as e:
+            self.logger.error(f"Error getting dataset summary: {e}")
+            return {"error": str(e)}
     
     def convert_pandas_to_spark(self, df: pd.DataFrame, table_name: str = "dataframe"):
         """Convert pandas DataFrame to Spark DataFrame"""
@@ -321,8 +510,10 @@ class DataQualityEngine:
     
     def run_comprehensive_quality_check(self, df: pd.DataFrame, 
                                      column_ranges: Dict = None,
-                                     pattern_columns: Dict = None) -> Dict:
-        """Run comprehensive data quality checks"""
+                                     pattern_columns: Dict = None,
+                                     dataset_name: str = "unknown_dataset",
+                                     save_metrics: bool = True) -> Dict:
+        """Run comprehensive data quality checks with optional metrics persistence"""
         try:
             spark_df = self.convert_pandas_to_spark(df)
             
@@ -365,6 +556,27 @@ class DataQualityEngine:
             # Generate profile and suggestions
             results['quality_checks']['data_profile'] = self.generate_data_profile(spark_df)
             results['quality_checks']['constraint_suggestions'] = self.suggest_constraints(spark_df)
+            
+            # Calculate overall quality score
+            quality_score = self.calculate_quality_score(results)
+            results['overall_quality_score'] = quality_score
+            
+            # Save metrics and add to run history if requested
+            if save_metrics:
+                run_id = self._generate_run_id()
+                filepath = self._save_metrics_to_file(run_id, dataset_name, results)
+                
+                if filepath:
+                    self._add_run_to_history(
+                        run_id=run_id,
+                        dataset_name=dataset_name,
+                        filepath=filepath,
+                        quality_score=quality_score,
+                        rows=len(df),
+                        columns=len(df.columns)
+                    )
+                    results['run_id'] = run_id
+                    results['metrics_file'] = filepath
             
             return results
             
